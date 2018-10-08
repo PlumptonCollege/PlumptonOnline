@@ -1,6 +1,6 @@
 SELECT 
     {course}.shortname as 'Moodle Code',
-    {course}.path as 'Category Path,',
+    {course_categories}.path as 'Category Path',
     {course}.fullname as 'Course Name',
     (COALESCE(RESOURCES.count,0) + COALESCE(FOLDERS.count,0) +  COALESCE(BOOKS.count,0) +  COALESCE(PAGES.count,0) +  COALESCE(URLS.count,0)) as 'Resource Activities', GREATEST(COALESCE(GLOSSARIES.count,0) + COALESCE(POLLS.count,0) +  COALESCE(CHATS.count,0) +  COALESCE(FORUMS.count,0) +  COALESCE(FEEDBACKS.count,0) - 1,0) as 'Interactive Activities',
     COALESCE(QUIZ.count,0) as 'Quiz Activities',
@@ -13,7 +13,9 @@ SELECT
     END AS 'Publish State',
     COALESCE(PC.TotalStudents,0) as 'Active Students',
     CONCAT(ROUND(PC.Percent7Days),'%') as '% Students in Last 7 Days', 
-    CONCAT(ROUND(PC.Percent30Days),'%') as '% Students in Last 30 Days'
+    CONCAT(ROUND(PC.Percent30Days),'%') as '% Students in Last 30 Days',
+    CONCAT(ROUND(PC.PercentQuarter),'%') as '% Students in Last Quarter',
+    CONCAT(ROUND(PC.Percent365Days),'%') as '% Students in Last Year'
 FROM {course}
 
 JOIN {course_categories} ON {course}.category = {course_categories}.id
@@ -82,8 +84,7 @@ LEFT OUTER JOIN (
 
 JOIN
 (
-SELECT {course}.id, coalesce(LA.ActiveStudents,0) as Last7days, coalesce(LAM.ActiveStudents,0) as Last30Days, EU.Total as TotalStudents, coalesce(LA.ActiveStudents/EU.Total*100,0) Percent7Days, coalesce(LAM.ActiveStudents/EU.Total*100,0) Percent30Days FROM {course}
-    
+    SELECT {course}.id, coalesce(LA.ActiveStudents,0) as Last7days, coalesce(LAM.ActiveStudents,0) as Last30Days, EU.Total as TotalStudents, coalesce(LA.ActiveStudents/EU.Total*100,0) Percent7Days, coalesce(LAQ.ActiveStudents/EU.Total*100,0) PercentQuarter, coalesce(LAY.ActiveStudents/EU.Total*100,0) Percent365Days, coalesce(LAM.ActiveStudents/EU.Total*100,0) Percent30Days FROM {course}
     LEFT JOIN
     (
         SELECT 
@@ -112,6 +113,34 @@ SELECT {course}.id, coalesce(LA.ActiveStudents,0) as Last7days, coalesce(LAM.Act
     ) LAM
     ON {course}.id = LAM.courseid
 
+    LEFT JOIN
+    (
+        SELECT 
+            ULA.courseid, COUNT(DISTINCT U.id) as ActiveStudents
+        FROM {user_lastaccess} ULA
+        JOIN {user} U ON U.id = ULA.userid
+        JOIN {user_info_data} UID ON U.id = UID.userid AND UID.fieldid = 1
+        WHERE 
+            ULA.timeaccess > (UNIX_TIMESTAMP(NOW()) - 86400*91)
+        AND UID.data = 'Student'
+        GROUP BY ULA.courseid
+    ) LAQ
+    ON {course}.id = LAQ.courseid
+
+    LEFT JOIN
+    (
+        SELECT 
+            ULA.courseid, COUNT(DISTINCT U.id) as ActiveStudents
+        FROM {user_lastaccess} ULA
+        JOIN {user} U ON U.id = ULA.userid
+        JOIN {user_info_data} UID ON U.id = UID.userid AND UID.fieldid = 1
+        WHERE 
+            ULA.timeaccess > (UNIX_TIMESTAMP(NOW()) - 86400*365)
+        AND UID.data = 'Student'
+        GROUP BY ULA.courseid
+    ) LAY
+    ON {course}.id = LAY.courseid
+
     LEFT JOIN (
         SELECT DISTINCT c.id as course, COALESCE(count(DISTINCT u.id),0) as Total
         FROM {user} u
@@ -125,8 +154,8 @@ SELECT {course}.id, coalesce(LA.ActiveStudents,0) as Last7days, coalesce(LAM.Act
         AND ra.roleid = 5
         GROUP by c.id
     ) EU
-ON {course}.id = EU.course
-JOIN {course_categories} ON {course}.category = {course_categories}.id
+    ON {course}.id = EU.course
+    JOIN {course_categories} ON {course}.category = {course_categories}.id
 ) PC ON {course}.id = PC.id 
 
 WHERE
