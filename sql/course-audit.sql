@@ -1,32 +1,12 @@
-
 SELECT 
     {course}.shortname as 'Moodle Code',
+    {course}.path as 'Category Path,',
     {course}.fullname as 'Course Name',
-
-    ###
-    ### To help with reporting we add a custom Course Type label
-    ### Change the filters and remove the #s from the following lines:
-    ###
-    #CASE
-    #    WHEN LEFT({course}.shortname,2)='SC' THEN 'Short Course'
-    #    WHEN LEFT({course}.shortname,2)='AP' THEN 'Apprenticeship'
-    #    WHEN LEFT({course}.shortname,2)='FE' THEN 'Further Education'
-    #    WHEN LEFT({course}.shortname,2)='FU' THEN 'Further Unit'
-    #    WHEN LEFT({course}.shortname,2)='FX' THEN 'Further Extension'
-    #    WHEN LEFT({course}.shortname,2)='HE' THEN 'Higher Programme'
-    #    WHEN LEFT({course}.shortname,2)='HM' THEN 'Higher Brighton Module'
-    #    WHEN LEFT({course}.shortname,2)='HR' THEN 'Higher RAU Module'
-    #    WHEN LEFT({course}.shortname,2)='SS' THEN 'Student Support'
-    #    WHEN LEFT({course}.shortname,2)='14' THEN '14+ Programme'
-    #END AS 'Course Type',
-
-    (COALESCE(RESOURCES.count,0) + COALESCE({folder}S.count,0) +  COALESCE(BOOKS.count,0) +  COALESCE(PAGES.count,0) +  COALESCE(URLS.count,0)) as 'Resource Activities', GREATEST(COALESCE(GLOSSARIES.count,0) + COALESCE(POLLS.count,0) +  COALESCE(CHATS.count,0) +  COALESCE(FORUMS.count,0) +  COALESCE(FEEDBACKS.count,0) - 1,0) as 'Interactive Activities',
+    (COALESCE(RESOURCES.count,0) + COALESCE(FOLDERS.count,0) +  COALESCE(BOOKS.count,0) +  COALESCE(PAGES.count,0) +  COALESCE(URLS.count,0)) as 'Resource Activities', GREATEST(COALESCE(GLOSSARIES.count,0) + COALESCE(POLLS.count,0) +  COALESCE(CHATS.count,0) +  COALESCE(FORUMS.count,0) +  COALESCE(FEEDBACKS.count,0) - 1,0) as 'Interactive Activities',
     COALESCE(QUIZ.count,0) as 'Quiz Activities',
     COALESCE(QGRADES.count,0) as 'Quiz Grades',
     COALESCE(TURNITIN.count,0) as 'Turnitin Activities',
     COALESCE(TGRADES.count,0) as 'Turnitin Grades',
-    CONCAT(?,{course}.id) as href,
-    {course}.visible,
     CASE
         WHEN {course}.visible = '0' THEN 'Hidden'
         WHEN {course}.visible = '1' THEN 'Published'
@@ -36,14 +16,8 @@ SELECT
     CONCAT(ROUND(PC.Percent30Days),'%') as '% Students in Last 30 Days'
 FROM {course}
 
-###
-### Join with course categories so we can filter by paths
-###
 JOIN {course_categories} ON {course}.category = {course_categories}.id
 
-###
-### Turnitin Audit
-###
 LEFT OUTER JOIN ( 
     SELECT courseid, COUNT(id) as count 
     FROM {grade_items} WHERE itemmodule = 'turnitintooltwo' 
@@ -56,13 +30,9 @@ LEFT OUTER JOIN (
     WHERE 
         rawgrade IS NOT NULL
     AND itemmodule = 'turnitintooltwo'
-    # AND {grade_grades}.timemodified<1478476800 
     GROUP BY courseid
 ) TGRADES ON {course}.id = TGRADES.courseid
 
-###
-### Interacive Activities Audit
-###
 LEFT OUTER JOIN (
     SELECT course, COUNT(id) as count FROM {glossary} GROUP BY course 
     ) GLOSSARIES ON {course}.id = GLOSSARIES.course
@@ -79,9 +49,6 @@ LEFT OUTER JOIN (
     SELECT course, COUNT(id) as count FROM {feedback} GROUP BY course 
 ) FEEDBACKS ON {course}.id = FEEDBACKS.course
 
-###
-### Resources Audit
-###
 LEFT OUTER JOIN (
     SELECT course, COUNT(id) as count FROM {book} GROUP BY course 
     ) BOOKS ON {course}.id = BOOKS.course
@@ -93,14 +60,11 @@ LEFT OUTER JOIN (
     ) URLS ON {course}.id = URLS.course
     LEFT OUTER JOIN (
     SELECT course, COUNT(id) as count FROM {folder} GROUP BY course 
-    ) {folder}S ON {course}.id = {folder}S.course
+    ) FOLDERS ON {course}.id = FOLDERS.course
     LEFT OUTER JOIN (
     SELECT course, COUNT(id) as count FROM {resource} GROUP BY course 
 ) RESOURCES ON {course}.id = RESOURCES.course
 
-###
-### Quiz Audit
-###
 LEFT OUTER JOIN ( 
     SELECT courseid, COUNT(id) as count 
     FROM {grade_items} WHERE itemmodule = 'quiz' 
@@ -113,21 +77,13 @@ LEFT OUTER JOIN (
     WHERE 
     rawgrade IS NOT NULL
     AND itemmodule = 'quiz'
-    # AND {grade_grades}.timemodified<1478476800
     GROUP BY courseid
 ) QGRADES ON {course}.id = QGRADES.courseid
 
-
-###
-### Activity Audit
-###
 JOIN
 (
 SELECT {course}.id, coalesce(LA.ActiveStudents,0) as Last7days, coalesce(LAM.ActiveStudents,0) as Last30Days, EU.Total as TotalStudents, coalesce(LA.ActiveStudents/EU.Total*100,0) Percent7Days, coalesce(LAM.ActiveStudents/EU.Total*100,0) Percent30Days FROM {course}
     
-    ###
-    ### Last 7 days
-    ###
     LEFT JOIN
     (
         SELECT 
@@ -142,9 +98,6 @@ SELECT {course}.id, coalesce(LA.ActiveStudents,0) as Last7days, coalesce(LAM.Act
     ) LA
     ON {course}.id = LA.courseid
 
-    ###
-    ### Last 30 days
-    ###
     LEFT JOIN
     (
         SELECT 
@@ -159,9 +112,6 @@ SELECT {course}.id, coalesce(LA.ActiveStudents,0) as Last7days, coalesce(LAM.Act
     ) LAM
     ON {course}.id = LAM.courseid
 
-    ###
-    ### Last quarter days
-    ###
     LEFT JOIN (
         SELECT DISTINCT c.id as course, COALESCE(count(DISTINCT u.id),0) as Total
         FROM {user} u
@@ -180,10 +130,8 @@ JOIN {course_categories} ON {course}.category = {course_categories}.id
 ) PC ON {course}.id = PC.id 
 
 WHERE
-    ###
-    ### Add your custom filters here
-    ###
-    shortname LIKE '%18-19%'
-    # path like '/?/?'
+    shortname LIKE :shortname_filter
+    AND 
+    path like :path_filter
 ORDER BY 
     shortname
